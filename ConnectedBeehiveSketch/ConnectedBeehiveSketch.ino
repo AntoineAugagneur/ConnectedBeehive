@@ -66,13 +66,16 @@ uint8_t lastMeasToAverage = 10;
 uint8_t maxTryStartHX = 5;
 HX711_ADC LoadCell(HX711_DOUT_PIN,HX711_SCK_PIN);
 long stabilisingtime = 2000;      // tare precision
-float hx711Factor = -22101;       // calculated once
+float hx711Factor = -22101;       // Calculated ! Specific to my scale ! 
 bool HXisOK = false;
+bool doTare = false;
 
 // Reset
 void(* resetFunc) (void) = 0;
 
 /**** modules definition **********************************************************/
+
+bool initWeight(void);
 
 bool initLoRa(void);
 
@@ -109,42 +112,26 @@ void setup() {
   Serial.println("######  Auga Connected Beehive    ######");
   Serial.println("########################################");
 
-  /****** Configuration of Battery voltage module *****/
+  /****** Configuration of Battery voltage module ****************/
   batt_voltage_adc = 0.0;
 
   /****** Configuration of Temperature & humidity module *********/
   Serial.println("\n> DHT22 Configuration");
   dht.begin();
+  Serial.println("  DHT22 Configuration done.");
 
-  /****** Configuration of Weight module **************/
+  /****** Configuration of Weight module *************************/
   Serial.println("\n> HX711 Configuration");
-  for (uint8_t i = 0; i<maxTryStartHX; i++){
-    Serial.print("  Start - Try ");Serial.println(i);
-    LoadCell.begin();
-    LoadCell.start(stabilisingtime);
-    if (LoadCell.getTareTimeoutFlag()) {
-      Serial.println("  Failed. Verify wiring.");
-      HXisOK = false;
-    }
-    else {
-      LoadCell.setCalFactor(1.0); //  (float)
-      Serial.println("  HX711 Configuration done.");
-      HXisOK = true;
-      break;
-    }
-  }
-
-  if(HXisOK){
-    while (!LoadCell.update());
-    float c = hx711Factor; LoadCell.setCalFactor(c);
-    Serial.print("  Calibration value: "); Serial.println(c);
+  if(!initWeight()){
+    Serial.println("  HX711 Configuration failed. Continue anyway.");
+    HXisOK = false;
   }
   else{
-    Serial.println("  HX711 connection aborted. Continue anyway.");
+    Serial.println("  HX711 Configuration done.");
+    HXisOK = true;
   }
 
-
-  /**** LoRaWAN Configuration *************************/
+  /**** LoRaWAN Configuration ************************************/
   Serial.println("\n> LoRaWAN Configuration");
   if(!initLoRa()){resetFunc();}
   Serial.println("  LoRaWAN Configuration done.");
@@ -172,6 +159,28 @@ void loop() {
 
 
 /**** Module definition **********************************************************/
+
+bool initWeight(void){
+  for (uint8_t i = 0; i<maxTryStartHX; i++){
+    Serial.print("  Start - Try ");Serial.println(i);
+    LoadCell.begin();
+    LoadCell.start(stabilisingtime,doTare);
+    if (LoadCell.getTareTimeoutFlag()) {
+      Serial.println("  Failed. Verify wiring.");
+      if (i>=maxTryStartHX-1){return false;}
+    }
+    else {
+      // LoadCell.setCalFactor(1.0);
+      while (!LoadCell.update());
+      float c = hx711Factor;
+      LoadCell.setCalFactor(c);
+      Serial.print("  Calibration value (hardcoded): "); Serial.println(c);
+      Serial.println("  HX711 Configuration done.");
+      break;
+    }
+  }
+  return true;
+}
 
 bool initLoRa(void){
 
