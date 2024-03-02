@@ -30,6 +30,8 @@ String appKey = "3E612760870FFBCFB931D185549CFF4C";
 uint8_t dataToSend[20] = {0};         // Data to send
 uint8_t dataReceived[20] = {0};       // Data received via Donwlink
 uint32_t frameDelay = FRAME_DELAY * 1000;
+uint8_t maxTryStartModule = 5;
+uint8_t maxTryJoinRequest = 5;
 
 /**** Cayenne LPP Setup ************************************************************/
 CayenneLPP dataToSendCayenne(51);
@@ -61,11 +63,21 @@ uint8_t hx711NbMeas = 30;
 long hx711Temp = 0;
 uint8_t hx711Period = 100;
 uint8_t lastMeasToAverage = 10;
+uint8_t maxTryStartHX = 5;
 HX711_ADC LoadCell(HX711_DOUT_PIN,HX711_SCK_PIN);
 long stabilisingtime = 2000;      // tare precision
 float hx711Factor = -22101;       // calculated once
+bool HXisOK = false;
+
+// Reset
+void(* resetFunc) (void) = 0;
 
 /**** modules definition **********************************************************/
+
+bool initLoRa(void);
+
+bool JoinRequest(void);
+
 void sendLoRa();
 
 void dowlink_handler(String Received_Payload);
@@ -85,7 +97,6 @@ void wait(void);
 /**** Setup *********************************************************************/
 
 void setup() {
-  int connected;
   
   /***** Serial Link Configuration ******/
   Serial.begin(115200);
@@ -107,56 +118,36 @@ void setup() {
 
   /****** Configuration of Weight module **************/
   Serial.println("\n> HX711 Configuration");
-  LoadCell.begin();
-  LoadCell.start(stabilisingtime);
+  for (uint8_t i = 0; i<maxTryStartHX; i++){
+    Serial.print("  Start - Try ");Serial.println(i);
+    LoadCell.begin();
+    LoadCell.start(stabilisingtime);
     if (LoadCell.getTareTimeoutFlag()) {
-    Serial.println("  Tare temps echu, verifiez MCU>HX711 le cablage et la designation des pins");
+      Serial.println("  Failed. Verify wiring.");
+      HXisOK = false;
+    }
+    else {
+      LoadCell.setCalFactor(1.0); //  (float)
+      Serial.println("  HX711 Configuration done.");
+      HXisOK = true;
+      break;
+    }
   }
-  else {
-    LoadCell.setCalFactor(1.0); //  (float)
-    Serial.println("  Demarrage et tare terminés");
+
+  if(HXisOK){
+    while (!LoadCell.update());
+    float c = hx711Factor; LoadCell.setCalFactor(c);
+    Serial.print("  Calibration value: "); Serial.println(c);
   }
-  while (!LoadCell.update());
-  float c = hx711Factor;
-  LoadCell.setCalFactor(c);
-  Serial.print("  La valeur de la calibration est: ");
-  Serial.println(c);
+  else{
+    Serial.println("  HX711 connection aborted. Continue anyway.");
+  }
+
 
   /**** LoRaWAN Configuration *************************/
   Serial.println("\n> LoRaWAN Configuration");
-  if (!modem.begin(EU868)) {
-    Serial.println("Failed to start module");
-    while (1);
-    Serial.print("Your device EUI is: ");
-    Serial.println(modem.deviceEUI());
-  };
-  Serial.println("  Module started.");
-  Serial.print("  DevEUI: "); Serial.println(modem.deviceEUI());
-  Serial.print("  AppEUI: "); Serial.println(appEui);
-  Serial.print("  AppKey: "); Serial.println(appKey);
-  do{
-  Serial.println("  JOIN procedure in progress ...");  
-  connected = modem.joinOTAA(appEui, appKey);
-    if (!connected){
-      Serial.println("  JOIN OTAA failed. Retry...");
-      digitalWrite(LED_BUILTIN, HIGH);
-      delay(2000);
-      digitalWrite(LED_BUILTIN, LOW);
-    }
-    else{
-      Serial.println("  JOIN procedure : SUCCESS !\r\n");
-    }
-  }while(!connected);
-
-  for(uint8_t l=0;l<4;l++){
-    digitalWrite(LED_BUILTIN, HIGH); delay(200);
-    digitalWrite(LED_BUILTIN, LOW); delay(200);
-  }
-
-  modem.dataRate(DATA_RATE);
-  modem.setADR(1);
-  modem.setPort(myPORT);
-  Serial.print("  Frame will be sent every ");Serial.print((frameDelay<7000)?7000:frameDelay);Serial.println("ms\r\n");  
+  if(!initLoRa()){resetFunc();}
+  Serial.println("  LoRaWAN Configuration done.");
  
 }
 
@@ -168,7 +159,7 @@ void loop() {
   /****** Call modules and update the LPP buffer *******/
   getBatteryVoltage();
   getTemperature_Humidity();
-  getWeight();
+  if (HXisOK){getWeight();}
 
   /****** Send data via LoRaWAN ************************/
   sendLoRa();
@@ -181,6 +172,61 @@ void loop() {
 
 
 /**** Module definition **********************************************************/
+
+bool initLoRa(void){
+
+  // Init module
+  for(uint8_t i = 0; i< maxTryStartModule; i++){
+    Serial.print("  Start Module - Try ");Serial.println(i);
+    if (!modem.begin(EU868)) {
+      Serial.println("  Failed to start module");
+      if (i>=maxTryStartModule-1){return false;}
+    }
+    else{
+      Serial.println("  Module started.");
+      Serial.print("  DevEUI: "); Serial.println(modem.deviceEUI());
+      Serial.print("  AppEUI: "); Serial.println(appEui);
+      Serial.print("  AppKey: "); Serial.println(appKey);
+      break;
+    }
+  }
+
+  // JoinRequest
+  if(!JoinRequest()){return false;}
+
+  // LoRaWAN settings
+  modem.dataRate(DATA_RATE);
+  modem.setADR(1);
+  modem.setPort(myPORT);
+  Serial.print("  Frame will be sent every ");Serial.print((frameDelay<7000)?7000:frameDelay);Serial.println("ms\r\n");  
+
+  return true;
+}
+
+bool JoinRequest(void){
+
+  for(uint8_t i = 0; i< maxTryJoinRequest; i++){
+    Serial.print("  Join Request - Try ");Serial.println(i);
+    if (!modem.joinOTAA(appEui, appKey)) {
+      Serial.println("  Join Request failed.");
+      digitalWrite(LED_BUILTIN, HIGH);
+      delay(2000);
+      digitalWrite(LED_BUILTIN, LOW);
+      if (i>=maxTryJoinRequest-1){return false;}
+    }
+    else{
+      Serial.println("  Join procedure completed.");
+      for(uint8_t l=0;l<4;l++){
+        digitalWrite(LED_BUILTIN, HIGH); delay(200);
+        digitalWrite(LED_BUILTIN, LOW); delay(200);
+      }
+      break;
+    }
+  }
+
+  return true;
+}
+
 
 void sendLoRa(){
 
