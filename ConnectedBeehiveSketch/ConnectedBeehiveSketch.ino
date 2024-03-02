@@ -300,10 +300,7 @@ void dowlink_handler(String Received_Payload){
   String Downlink_Ack = "";
 
   if (CID == "01"){ // Modif of uplink frequency, payload size = 2 bytes
-    
-    Serial.println(" (Sending Period modification)");
-
-    // Get de new frequency et set it up
+    Serial.println(" / Sending Period modification)");
     String P_hex = Received_Payload.substring(2,6);
     long P_int = strtol(P_hex.c_str(),NULL,16);
     frameDelay = (int)P_int * 1000;
@@ -316,8 +313,28 @@ void dowlink_handler(String Received_Payload){
 
   }
   else if (CID == "02"){
-    Serial.println(" (CID 02)");
-    // add command
+    Serial.println(" / Software reset");
+    String P_hex = Received_Payload.substring(2,6);
+    long P_int = strtol(P_hex.c_str(),NULL,16);
+    Serial.print("  --> HEX: ");
+    Serial.print(P_hex);
+    if (P_hex == "0001"){
+      Serial.println("Reset..");
+      resetFunc();
+    }
+  }
+  else if (CID == "03"){
+    Serial.println(" / init LoRa");
+    String P_hex = Received_Payload.substring(2,6);
+    long P_int = strtol(P_hex.c_str(),NULL,16);
+    Serial.print("  --> HEX: ");
+    Serial.println(P_hex);
+    if (P_hex == "0001"){
+      if(!initLoRa()){
+        Serial.println("Reset..");
+        resetFunc();
+      }
+    }
   }
   else{
     Serial.println(" (CID unknown. exit.)");
