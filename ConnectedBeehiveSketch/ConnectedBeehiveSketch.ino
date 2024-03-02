@@ -165,7 +165,7 @@ bool initWeight(void){
     Serial.print("  Start - Try ");Serial.println(i);
     LoadCell.begin();
     LoadCell.start(stabilisingtime,doTare);
-    if (LoadCell.getTareTimeoutFlag()) {
+    if (LoadCell.update()<1) {
       Serial.println("  Failed. Verify wiring.");
       if (i>=maxTryStartHX-1){return false;}
     }
@@ -207,7 +207,7 @@ bool initLoRa(void){
   modem.dataRate(DATA_RATE);
   modem.setADR(1);
   modem.setPort(myPORT);
-  Serial.print("  Frame will be sent every ");Serial.print((frameDelay<7000)?7000:frameDelay);Serial.println("ms\r\n");  
+  Serial.print("  Frame will be sent every ");Serial.print((frameDelay<7000)?7000:frameDelay);Serial.println("ms");  
 
   return true;
 }
